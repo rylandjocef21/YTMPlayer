@@ -8,3 +8,6 @@ YTMPlayer_FILES = main.m YTMAppDelegate.m YTMViewController.m
 YTMPlayer_FRAMEWORKS = UIKit AVFoundation CoreGraphics MediaPlayer
 
 include $(THEOS_MAKE_PATH)/application.mk
+
+after-install::
+	install.exec "su mobile -c uicache"
