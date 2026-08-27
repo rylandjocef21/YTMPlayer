@@ -6,7 +6,6 @@
 @property (nonatomic, strong) UISegmentedControl *sectionSegment;
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UIActivityIndicatorView *loadingIndicator;
 
 // Mini Player UI
 @property (nonatomic, strong) UIView *nowPlayingView;
@@ -55,29 +54,13 @@
     self.tableView.separatorColor = [UIColor colorWithWhite:0.2 alpha:1.0];
     [self.view addSubview:self.tableView];
     
-    // 4. Loading Indicator
-    self.loadingIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
-    self.loadingIndicator.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height / 2);
-    self.loadingIndicator.hidesWhenStopped = YES;
-    [self.view addSubview:self.loadingIndicator];
-    
-    // 5. Now Playing Mini Player Bar
+    // 4. Now Playing Mini Player Bar
     [self setupNowPlayingBar];
     
-    // 6. Audio Session Setup & Remote Commands
+    // 5. Audio Session Setup
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     [[AVAudioSession sharedInstance] setActive:YES error:nil];
     [self setupRemoteCommandCenter];
-    
-    // 7. Track Playback Finish Observer
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(playerDidFinishPlaying:)
-                                                 name:AVPlayerItemDidPlayToEndTimeNotification
-                                               object:nil];
-}
-
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 #pragma mark - UI Setup & Navigation
@@ -110,7 +93,6 @@
     } else {
         self.searchBar.hidden = YES;
         self.tableView.frame = CGRectMake(0, 64, self.view.frame.size.width, self.view.frame.size.height - 124);
-        [self loadHistory];
     }
     [self.tableView reloadData];
 }
@@ -122,11 +104,8 @@
     NSString *query = searchBar.text;
     if (query.length == 0) return;
     
-    [self.loadingIndicator startAnimating];
-    
     [self searchYouTubeMusic:query completion:^(NSArray *results) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self.loadingIndicator stopAnimating];
             [self.searchResults removeAllObjects];
             [self.searchResults addObjectsFromArray:results];
             [self.tableView reloadData];
@@ -185,6 +164,7 @@
     if ([node isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = (NSDictionary *)node;
         
+        // Match specific InnerTube renderers for tracks and videos
         NSDictionary *renderer = dict[@"videoRenderer"] ?: dict[@"compactVideoRenderer"] ?: dict[@"musicResponsiveListItemRenderer"];
         
         if (renderer) {
@@ -262,94 +242,64 @@
     NSDictionary *selectedTrack = (self.sectionSegment.selectedSegmentIndex == 0) ? self.searchResults[indexPath.row] : self.historyResults[indexPath.row];
     
     [self addToHistory:selectedTrack];
-    self.nowPlayingLabel.text = [NSString stringWithFormat:@"Loading: %@...", selectedTrack[@"title"]];
+    self.nowPlayingLabel.text = [NSString stringWithFormat:@"%@ - %@", selectedTrack[@"title"], selectedTrack[@"artist"]];
     [self fetchAndStreamVideoId:selectedTrack[@"videoId"] title:selectedTrack[@"title"] artist:selectedTrack[@"artist"]];
 }
 
-- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
-    return (self.sectionSegment.selectedSegmentIndex == 1);
-}
-
-- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (editingStyle == UITableViewCellEditingStyleDelete && self.sectionSegment.selectedSegmentIndex == 1) {
-        [self.historyResults removeObjectAtIndex:indexPath.row];
-        [[NSUserDefaults standardUserDefaults] setObject:self.historyResults forKey:@"YTMPlayerHistory"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationFade];
-    }
-}
-
-#pragma mark - Player Engine & Fallback Logic
+#pragma mark - Player Engine & Remote Controls
 
 - (void)fetchAndStreamVideoId:(NSString *)videoId title:(NSString *)title artist:(NSString *)artist {
-    // Attempt 1: TVHTML5_SIMPLY_EMBEDDED_PLAYER
-    [self fetchStreamURLWithContext:@"TVHTML5_SIMPLY_EMBEDDED_PLAYER" version:@"2.0" videoId:videoId completion:^(NSString *streamUrl) {
-        if (streamUrl.length > 0) {
-            [self startAudioPlaybackWithURL:streamUrl title:title artist:artist];
-        } else {
-            // Attempt 2: Fallback to ANDROID_VR Context
-            [self fetchStreamURLWithContext:@"ANDROID_VR" version:@"1.65.10" videoId:videoId completion:^(NSString *fallbackUrl) {
-                if (fallbackUrl.length > 0) {
-                    [self startAudioPlaybackWithURL:fallbackUrl title:title artist:artist];
-                } else {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        self.nowPlayingLabel.text = @"Error: Track unavailable";
-                    });
-                }
-            }];
-        }
-    }];
-}
-
-- (void)fetchStreamURLWithContext:(NSString *)clientName version:(NSString *)version videoId:(NSString *)videoId completion:(void(^)(NSString *url))completion {
     NSString *urlString = @"https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlvU8O4R_4W16Y_019YpX4O_v9w";
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
+    NSURL *url = [NSURL URLWithString:urlString];
+    
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"POST"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" forHTTPHeaderField:@"User-Agent"];
     
+    // Uses TVHTML5 client to get direct, unencrypted audio stream URLs
     NSDictionary *payload = @{
         @"context": @{
             @"client": @{
-                @"clientName": clientName,
-                @"clientVersion": version
+                @"clientName": @"TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                @"clientVersion": @"2.0"
             }
         },
         @"videoId": videoId
     };
     
-    [request setHTTPBody:[NSJSONSerialization dataWithJSONObject:payload options:0 error:nil]];
+    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    [request setHTTPBody:bodyData];
     
-    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (!data) { completion(nil); return; }
-        
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!data) return;
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        NSArray *formats = json[@"streamingData"][@"adaptiveFormats"] ?: json[@"streamingData"][@"formats"];
+        NSArray *formats = json[@"streamingData"][@"adaptiveFormats"];
+        
+        if (!formats) {
+            formats = json[@"streamingData"][@"formats"];
+        }
         
         for (NSDictionary *format in formats) {
-            NSString *url = format[@"url"];
-            if (url.length > 0) {
-                completion(url);
-                return;
+            NSString *streamUrl = format[@"url"];
+            if (streamUrl && streamUrl.length > 0) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.audioPlayer = [AVPlayer playerWithURL:[NSURL URLWithString:streamUrl]];
+                    [self.audioPlayer play];
+                    self.isPlaying = YES;
+                    [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
+                    
+                    [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
+                        MPMediaItemPropertyTitle: title,
+                        MPMediaItemPropertyArtist: artist,
+                        MPNowPlayingInfoPropertyPlaybackRate: @(1.0)
+                    };
+                });
+                break;
             }
         }
-        completion(nil);
-    }] resume];
-}
-
-- (void)startAudioPlaybackWithURL:(NSString *)streamUrl title:(NSString *)title artist:(NSString *)artist {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        self.audioPlayer = [AVPlayer playerWithURL:[NSURL URLWithString:streamUrl]];
-        [self.audioPlayer play];
-        self.isPlaying = YES;
-        self.nowPlayingLabel.text = [NSString stringWithFormat:@"%@ - %@", title, artist];
-        [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
-        
-        [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
-            MPMediaItemPropertyTitle: title,
-            MPMediaItemPropertyArtist: artist,
-            MPNowPlayingInfoPropertyPlaybackRate: @(1.0)
-        };
-    });
+    }];
+    [task resume];
 }
 
 - (void)togglePlayPause {
@@ -362,13 +312,6 @@
         [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
     }
     self.isPlaying = !self.isPlaying;
-}
-
-- (void)playerDidFinishPlaying:(NSNotification *)notification {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        self.isPlaying = NO;
-        [self.playPauseButton setTitle:@"▶" forState:UIControlStateNormal];
-    });
 }
 
 - (void)setupRemoteCommandCenter {
