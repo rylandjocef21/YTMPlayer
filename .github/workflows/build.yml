@@ -13,9 +13,8 @@ jobs:
       - name: Install Theos & SDKs
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
-          curl -LO https://github.com/theos/sdks/archive/master.zip
-          unzip -q master.zip
-          mv sdks-master/* ~/theos/sdks/
+          git clone https://github.com/hex-edit/sdks.git ~/theos/sdks-patched
+          cp -r ~/theos/sdks-patched/* ~/theos/sdks/ || true
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
       - name: Build Package
