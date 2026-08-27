@@ -97,7 +97,7 @@
     [self.tableView reloadData];
 }
 
-#pragma mark - InnerTube Search API
+#pragma mark - Piped / NewPipe Extractor Search API
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
@@ -114,121 +114,56 @@
 }
 
 - (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
-    NSString *urlString = @"https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlvU8O4R_4W16Y_019YpX4O_v9w";
+    NSString *encodedQuery = [query stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+    
+    // Uses Piped (NewPipe-backed) API
+    NSString *urlString = [NSString stringWithFormat:@"https://pipedapi.kavin.rocks/search?q=%@&filter=music_songs", encodedQuery];
     NSURL *url = [NSURL URLWithString:urlString];
     
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
-                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url 
+                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
                                                        timeoutInterval:15.0];
-    [request setHTTPMethod:@"POST"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [request setValue:@"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36" forHTTPHeaderField:@"User-Agent"];
-    
-    NSDictionary *payload = @{
-        @"context": @{
-            @"client": @{
-                @"clientName": @"ANDROID",
-                @"clientVersion": @"19.09.37",
-                @"hl": @"en",
-                @"gl": @"US"
-            }
-        },
-        @"query": query
-    };
-    
-    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
-    [request setHTTPBody:bodyData];
+    [request setHTTPMethod:@"GET"];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error || !data) {
-            NSLog(@"[YTM Error]: %@", error.localizedDescription);
+            NSLog(@"[Piped Search Error]: %@", error.localizedDescription);
             completion(@[]);
             return;
         }
         
-        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        id jsonResponse = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
         
-        [self extractTracksFromDictionary:json resultsContainer:parsedTracks];
+        NSArray *items = nil;
+        if ([jsonResponse isKindOfClass:[NSDictionary class]]) {
+            items = jsonResponse[@"items"];
+        } else if ([jsonResponse isKindOfClass:[NSArray class]]) {
+            items = (NSArray *)jsonResponse;
+        }
+        
+        for (NSDictionary *item in items) {
+            NSString *urlPath = item[@"url"];
+            NSString *videoId = item[@"id"];
+            if (!videoId && urlPath) {
+                videoId = [urlPath stringByReplacingOccurrencesOfString:@"/watch?v=" withString:@""];
+            }
+            
+            NSString *title = item[@"title"];
+            NSString *artist = item[@"uploaderName"] ?: item[@"uploader"];
+            
+            if (videoId && title) {
+                [parsedTracks addObject:@{
+                    @"videoId": videoId,
+                    @"title": title,
+                    @"artist": artist ?: @"YouTube Music"
+                }];
+            }
+        }
         
         completion(parsedTracks);
     }];
     [task resume];
-}
-
-- (void)extractTracksFromDictionary:(id)node resultsContainer:(NSMutableArray *)container {
-    if ([node isKindOfClass:[NSDictionary class]]) {
-        NSDictionary *dict = (NSDictionary *)node;
-        
-        // Extract Video ID across standard and renderer nodes
-        NSString *videoId = dict[@"videoId"];
-        if (!videoId) {
-            videoId = dict[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"];
-        }
-        if (!videoId) {
-            videoId = dict[@"onTap"][@"watchEndpoint"][@"videoId"];
-        }
-        
-        if (videoId && [videoId isKindOfClass:[NSString class]] && videoId.length > 0) {
-            NSString *title = nil;
-            NSString *artist = nil;
-            
-            // 1. Title Extraction
-            if (dict[@"title"][@"runs"][0][@"text"]) {
-                title = dict[@"title"][@"runs"][0][@"text"];
-            } else if (dict[@"headline"][@"runs"][0][@"text"]) {
-                title = dict[@"headline"][@"runs"][0][@"text"];
-            } else if (dict[@"flexColumns"][0][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"]) {
-                title = dict[@"flexColumns"][0][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"];
-            }
-            
-            // 2. Artist Extraction
-            if (dict[@"subtitle"][@"runs"]) {
-                NSArray *runs = dict[@"subtitle"][@"runs"];
-                for (NSDictionary *run in runs) {
-                    NSString *txt = run[@"text"];
-                    if (txt && ![txt isEqualToString:@" • "] && ![txt isEqualToString:@"Song"]) {
-                        artist = txt;
-                        break;
-                    }
-                }
-            } else if (dict[@"longBylineText"][@"runs"][0][@"text"]) {
-                artist = dict[@"longBylineText"][@"runs"][0][@"text"];
-            } else if (dict[@"shortBylineText"][@"runs"][0][@"text"]) {
-                artist = dict[@"shortBylineText"][@"runs"][0][@"text"];
-            } else if ([dict[@"flexColumns"] count] > 1) {
-                NSArray *runs = dict[@"flexColumns"][1][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"];
-                if (runs.count > 0) {
-                    artist = runs[0][@"text"];
-                }
-            }
-            
-            if (videoId && title) {
-                BOOL exists = NO;
-                for (NSDictionary *t in container) {
-                    if ([t[@"videoId"] isEqualToString:videoId]) {
-                        exists = YES;
-                        break;
-                    }
-                }
-                if (!exists) {
-                    [container addObject:@{
-                        @"videoId": videoId,
-                        @"title": title,
-                        @"artist": artist ?: @"YouTube Track"
-                    }];
-                }
-            }
-        }
-        
-        for (id key in dict) {
-            [self extractTracksFromDictionary:dict[key] resultsContainer:container];
-        }
-    } else if ([node isKindOfClass:[NSArray class]]) {
-        for (id child in (NSArray *)node) {
-            [self extractTracksFromDictionary:child resultsContainer:container];
-        }
-    }
 }
 
 #pragma mark - Table View Data & Delegate
@@ -263,52 +198,52 @@
     [self fetchAndStreamVideoId:selectedTrack[@"videoId"] title:selectedTrack[@"title"] artist:selectedTrack[@"artist"]];
 }
 
-#pragma mark - Player Engine & Remote Controls
+#pragma mark - Player Engine (Piped Audio Extraction)
 
 - (void)fetchAndStreamVideoId:(NSString *)videoId title:(NSString *)title artist:(NSString *)artist {
-    NSString *urlString = @"https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlvU8O4R_4W16Y_019YpX4O_v9w";
+    NSString *urlString = [NSString stringWithFormat:@"https://pipedapi.kavin.rocks/streams/%@", videoId];
     NSURL *url = [NSURL URLWithString:urlString];
     
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    [request setHTTPMethod:@"POST"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [request setValue:@"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36" forHTTPHeaderField:@"User-Agent"];
-    
-    NSDictionary *payload = @{
-        @"context": @{
-            @"client": @{
-                @"clientName": @"ANDROID",
-                @"clientVersion": @"19.09.37"
-            }
-        },
-        @"videoId": videoId
-    };
-    
-    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
-    [request setHTTPBody:bodyData];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url 
+                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
+                                                       timeoutInterval:15.0];
+    [request setHTTPMethod:@"GET"];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (!data) return;
-        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        NSArray *formats = json[@"streamingData"][@"adaptiveFormats"];
+        if (error || !data) return;
         
-        for (NSDictionary *format in formats) {
-            if ([format[@"mimeType"] containsString:@"audio/mp4"]) {
-                NSString *streamUrl = format[@"url"];
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.audioPlayer = [AVPlayer playerWithURL:[NSURL URLWithString:streamUrl]];
-                    [self.audioPlayer play];
-                    self.isPlaying = YES;
-                    [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
-                    
-                    [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
-                        MPMediaItemPropertyTitle: title,
-                        MPMediaItemPropertyArtist: artist,
-                        MPNowPlayingInfoPropertyPlaybackRate: @(1.0)
-                    };
-                });
+        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        NSArray *audioStreams = json[@"audioStreams"];
+        
+        NSString *streamUrl = nil;
+        
+        // Find best m4a / mp4 direct audio stream link
+        for (NSDictionary *stream in audioStreams) {
+            NSString *mimeType = stream[@"mimeType"];
+            if ([mimeType containsString:@"audio/mp4"] || [mimeType containsString:@"audio/m4a"]) {
+                streamUrl = stream[@"url"];
                 break;
             }
+        }
+        
+        // Fallback to first available stream if mp4 not explicitly matched
+        if (!streamUrl && audioStreams.count > 0) {
+            streamUrl = audioStreams[0][@"url"];
+        }
+        
+        if (streamUrl) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.audioPlayer = [AVPlayer playerWithURL:[NSURL URLWithString:streamUrl]];
+                [self.audioPlayer play];
+                self.isPlaying = YES;
+                [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
+                
+                [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
+                    MPMediaItemPropertyTitle: title,
+                    MPMediaItemPropertyArtist: artist,
+                    MPNowPlayingInfoPropertyPlaybackRate: @(1.0)
+                };
+            });
         }
     }];
     [task resume];
