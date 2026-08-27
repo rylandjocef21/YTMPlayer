@@ -1,9 +1,0 @@
-Package: com.vibecode.ytmplayer
-Name: YTM Player Legacy
-Depends: firmware (>= 9.0), firmware (<= 10.3.4)
-Version: 1.0.0
-Architecture: iphoneos-arm
-Description: Lightweight iOS 9/10 streaming app powered by InnerTube API.
-Maintainer: Vibecode
-Author: Vibecode
-Section: Multimedia
