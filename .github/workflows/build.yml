@@ -10,16 +10,12 @@ jobs:
       - name: Install ldid
         run: brew install ldid
 
-      - name: Install Theos, Toolchain & SDKs
+      - name: Install Theos & SDKs
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
           curl -LO https://github.com/theos/sdks/archive/master.zip
           unzip -q master.zip
           mv sdks-master/* ~/theos/sdks/
-          
-          # Install armv7 capable toolchain for modern macOS
-          curl -LO https://github.com/kabiroberai/theos-toolchain-script/releases/download/v1.0/toolchain-macos-x86_64.tar.gz || true
-          
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
       - name: Build Package
