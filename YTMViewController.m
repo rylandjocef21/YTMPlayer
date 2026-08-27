@@ -3,13 +3,18 @@
 #import <MediaPlayer/MediaPlayer.h>
 
 @interface YTMViewController () <UISearchBarDelegate, UITableViewDelegate, UITableViewDataSource>
+@property (nonatomic, strong) UISegmentedControl *sectionSegment;
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UITableView *tableView;
+
+// Mini Player UI
 @property (nonatomic, strong) UIView *nowPlayingView;
 @property (nonatomic, strong) UILabel *nowPlayingLabel;
 @property (nonatomic, strong) UIButton *playPauseButton;
 
+// Data Management
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *searchResults;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *historyResults;
 @property (nonatomic, strong) AVPlayer *audioPlayer;
 @property (nonatomic, assign) BOOL isPlaying;
 @end
@@ -19,33 +24,46 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.07 green:0.07 blue:0.07 alpha:1.0];
-    self.searchResults = [NSMutableArray array];
     
-    // 1. Classic Dark iOS Search Bar
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 20, self.view.frame.size.width, 44)];
+    self.searchResults = [NSMutableArray array];
+    [self loadHistory];
+    
+    // 1. Navigation Segment (Search vs History)
+    self.sectionSegment = [[UISegmentedControl alloc] initWithItems:@[@"Search", @"History"]];
+    self.sectionSegment.frame = CGRectMake(20, 28, self.view.frame.size.width - 40, 30);
+    self.sectionSegment.selectedSegmentIndex = 0;
+    self.sectionSegment.tintColor = [UIColor colorWithRed:0.11 green:0.84 blue:0.38 alpha:1.0];
+    [self.sectionSegment addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.view addSubview:self.sectionSegment];
+    
+    // 2. Search Bar
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 64, self.view.frame.size.width, 44)];
     self.searchBar.delegate = self;
-    self.searchBar.placeholder = @"Search songs, artists, albums...";
+    self.searchBar.placeholder = @"Search songs or artists...";
     self.searchBar.barStyle = UIBarStyleBlack;
-    self.searchBar.tintColor = [UIColor colorWithRed:0.11 green:0.84 blue:0.38 alpha:1.0]; // Spotify Green accent
+    self.searchBar.tintColor = [UIColor colorWithRed:0.11 green:0.84 blue:0.38 alpha:1.0];
     [self.view addSubview:self.searchBar];
     
-    // 2. Results List (Spotify Style)
-    CGFloat tableHeight = self.view.frame.size.height - 124;
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 64, self.view.frame.size.width, tableHeight) style:UITableViewStylePlain];
+    // 3. Results/History Table
+    CGFloat tableY = 108;
+    CGFloat tableHeight = self.view.frame.size.height - tableY - 60;
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, tableY, self.view.frame.size.width, tableHeight) style:UITableViewStylePlain];
     self.tableView.delegate = self;
     self.tableView.dataSource = self;
     self.tableView.backgroundColor = [UIColor clearColor];
     self.tableView.separatorColor = [UIColor colorWithWhite:0.2 alpha:1.0];
     [self.view addSubview:self.tableView];
     
-    // 3. Persistent Mini Player at Bottom
+    // 4. Now Playing Mini Player Bar
     [self setupNowPlayingBar];
     
-    // 4. Background Audio Config
+    // 5. Audio Session Setup
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     [[AVAudioSession sharedInstance] setActive:YES error:nil];
     [self setupRemoteCommandCenter];
 }
+
+#pragma mark - UI Setup & Navigation
 
 - (void)setupNowPlayingBar {
     CGFloat barY = self.view.frame.size.height - 60;
@@ -54,7 +72,7 @@
     
     self.nowPlayingLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, 10, self.view.frame.size.width - 80, 40)];
     self.nowPlayingLabel.textColor = [UIColor whiteColor];
-    self.nowPlayingLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    self.nowPlayingLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     self.nowPlayingLabel.text = @"Not Playing";
     [self.nowPlayingView addSubview:self.nowPlayingLabel];
     
@@ -68,11 +86,18 @@
     [self.view addSubview:self.nowPlayingView];
 }
 
-#import "YTMViewController.h"
+- (void)segmentChanged:(UISegmentedControl *)sender {
+    if (sender.selectedSegmentIndex == 0) {
+        self.searchBar.hidden = NO;
+        self.tableView.frame = CGRectMake(0, 108, self.view.frame.size.width, self.view.frame.size.height - 168);
+    } else {
+        self.searchBar.hidden = YES;
+        self.tableView.frame = CGRectMake(0, 64, self.view.frame.size.width, self.view.frame.size.height - 124);
+    }
+    [self.tableView reloadData];
+}
 
-// ... (Previous imports and setup)
-
-#pragma mark - Search & InnerTube Logic
+#pragma mark - InnerTube Search API
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
@@ -113,7 +138,6 @@
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
         
-        // Parsing InnerTube Search Response
         NSArray *sections = json[@"contents"][@"tabbedSearchResultsRenderer"][@"tabs"][0][@"tabRenderer"][@"content"][@"sectionListRenderer"][@"contents"];
         for (NSDictionary *section in sections) {
             NSArray *items = section[@"musicShelfRenderer"][@"contents"];
@@ -137,10 +161,10 @@
     [task resume];
 }
 
-#pragma mark - TableView Delegate / DataSource
+#pragma mark - Table View Data & Delegate
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.searchResults.count;
+    return (self.sectionSegment.selectedSegmentIndex == 0) ? self.searchResults.count : self.historyResults.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -153,7 +177,7 @@
         cell.detailTextLabel.textColor = [UIColor lightGrayColor];
     }
     
-    NSDictionary *track = self.searchResults[indexPath.row];
+    NSDictionary *track = (self.sectionSegment.selectedSegmentIndex == 0) ? self.searchResults[indexPath.row] : self.historyResults[indexPath.row];
     cell.textLabel.text = track[@"title"];
     cell.detailTextLabel.text = track[@"artist"];
     return cell;
@@ -161,13 +185,15 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    NSDictionary *selectedTrack = self.searchResults[indexPath.row];
     
+    NSDictionary *selectedTrack = (self.sectionSegment.selectedSegmentIndex == 0) ? self.searchResults[indexPath.row] : self.historyResults[indexPath.row];
+    
+    [self addToHistory:selectedTrack];
     self.nowPlayingLabel.text = [NSString stringWithFormat:@"%@ - %@", selectedTrack[@"title"], selectedTrack[@"artist"]];
     [self fetchAndStreamVideoId:selectedTrack[@"videoId"] title:selectedTrack[@"title"] artist:selectedTrack[@"artist"]];
 }
 
-#pragma mark - Playback Control
+#pragma mark - Player Engine & Remote Controls
 
 - (void)fetchAndStreamVideoId:(NSString *)videoId title:(NSString *)title artist:(NSString *)artist {
     NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/player"];
@@ -197,7 +223,6 @@
                     self.isPlaying = YES;
                     [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
                     
-                    // Lockscreen Metadata
                     [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
                         MPMediaItemPropertyTitle: title,
                         MPMediaItemPropertyArtist: artist,
@@ -237,6 +262,32 @@
         [self.playPauseButton setTitle:@"▶" forState:UIControlStateNormal];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
+}
+
+#pragma mark - History Persistence
+
+- (void)loadHistory {
+    NSArray *saved = [[NSUserDefaults standardUserDefaults] objectForKey:@"YTMPlayerHistory"];
+    if (saved) {
+        self.historyResults = [saved mutableCopy];
+    } else {
+        self.historyResults = [NSMutableArray array];
+    }
+}
+
+- (void)addToHistory:(NSDictionary *)track {
+    // Remove duplicate entry if it exists to push it to the top
+    for (NSInteger i = 0; i < self.historyResults.count; i++) {
+        if ([self.historyResults[i][@"videoId"] isEqualToString:track[@"videoId"]]) {
+            [self.historyResults removeObjectAtIndex:i];
+            break;
+        }
+    }
+    [self.historyResults insertObject:track atIndex:0];
+    
+    // Save to NSUserDefaults
+    [[NSUserDefaults standardUserDefaults] setObject:self.historyResults forKey:@"YTMPlayerHistory"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 @end
