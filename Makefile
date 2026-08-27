@@ -7,7 +7,7 @@ APPLICATION_NAME = YTMPlayer
 YTMPlayer_FILES = main.m YTMAppDelegate.m YTMViewController.m
 YTMPlayer_FRAMEWORKS = UIKit AVFoundation CoreGraphics MediaPlayer
 
-include $(THEOS_MAKE_PATH)/application.mk
+# This line is critical for iOS 10 icon display
+YTMPlayer_RESOURCE_FILES = Info.plist Icon-60@2x.png
 
-after-install::
-	install.exec "su mobile -c uicache"
+include $(THEOS_MAKE_PATH)/application.mk
