@@ -97,7 +97,7 @@
     [self.tableView reloadData];
 }
 
-#pragma mark - Piped / NewPipe Extractor Search API
+#pragma mark - InnerTube Search API
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
@@ -114,56 +114,104 @@
 }
 
 - (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
-    NSString *encodedQuery = [query stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-    
-    // Uses Piped (NewPipe-backed) API
-    NSString *urlString = [NSString stringWithFormat:@"https://pipedapi.kavin.rocks/search?q=%@&filter=music_songs", encodedQuery];
+    NSString *urlString = @"https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlvU8O4R_4W16Y_019YpX4O_v9w";
     NSURL *url = [NSURL URLWithString:urlString];
     
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url 
-                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
+                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
                                                        timeoutInterval:15.0];
-    [request setHTTPMethod:@"GET"];
+    [request setHTTPMethod:@"POST"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"com.google.ios.youtube/19.29.1 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)" forHTTPHeaderField:@"User-Agent"];
+    
+    NSDictionary *payload = @{
+        @"context": @{
+            @"client": @{
+                @"clientName": @"IOS",
+                @"clientVersion": @"19.29.1",
+                @"deviceMake": @"Apple",
+                @"deviceModel": @"iPhone14,3",
+                @"userInterfaceTheme": @"USER_INTERFACE_THEME_DARK",
+                @"osName": @"iPhone",
+                @"osVersion": @"15.6.0.19E257",
+                @"hl": @"en",
+                @"gl": @"US"
+            }
+        },
+        @"query": query
+    };
+    
+    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    [request setHTTPBody:bodyData];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error || !data) {
-            NSLog(@"[Piped Search Error]: %@", error.localizedDescription);
             completion(@[]);
             return;
         }
         
-        id jsonResponse = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
         
-        NSArray *items = nil;
-        if ([jsonResponse isKindOfClass:[NSDictionary class]]) {
-            items = jsonResponse[@"items"];
-        } else if ([jsonResponse isKindOfClass:[NSArray class]]) {
-            items = (NSArray *)jsonResponse;
-        }
-        
-        for (NSDictionary *item in items) {
-            NSString *urlPath = item[@"url"];
-            NSString *videoId = item[@"id"];
-            if (!videoId && urlPath) {
-                videoId = [urlPath stringByReplacingOccurrencesOfString:@"/watch?v=" withString:@""];
-            }
-            
-            NSString *title = item[@"title"];
-            NSString *artist = item[@"uploaderName"] ?: item[@"uploader"];
-            
-            if (videoId && title) {
-                [parsedTracks addObject:@{
-                    @"videoId": videoId,
-                    @"title": title,
-                    @"artist": artist ?: @"YouTube Music"
-                }];
-            }
-        }
+        [self extractTracksFromDictionary:json resultsContainer:parsedTracks];
         
         completion(parsedTracks);
     }];
     [task resume];
+}
+
+- (void)extractTracksFromDictionary:(id)node resultsContainer:(NSMutableArray *)container {
+    if ([node isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)node;
+        
+        // Match specific InnerTube renderers for tracks and videos
+        NSDictionary *renderer = dict[@"videoRenderer"] ?: dict[@"compactVideoRenderer"] ?: dict[@"musicResponsiveListItemRenderer"];
+        
+        if (renderer) {
+            NSString *videoId = renderer[@"videoId"];
+            
+            NSString *title = nil;
+            if (renderer[@"title"][@"runs"][0][@"text"]) {
+                title = renderer[@"title"][@"runs"][0][@"text"];
+            } else if (renderer[@"title"][@"simpleText"]) {
+                title = renderer[@"title"][@"simpleText"];
+            }
+            
+            NSString *artist = nil;
+            if (renderer[@"ownerText"][@"runs"][0][@"text"]) {
+                artist = renderer[@"ownerText"][@"runs"][0][@"text"];
+            } else if (renderer[@"shortBylineText"][@"runs"][0][@"text"]) {
+                artist = renderer[@"shortBylineText"][@"runs"][0][@"text"];
+            } else if (renderer[@"longBylineText"][@"runs"][0][@"text"]) {
+                artist = renderer[@"longBylineText"][@"runs"][0][@"text"];
+            }
+            
+            if (videoId.length > 0 && title.length > 0) {
+                BOOL exists = NO;
+                for (NSDictionary *t in container) {
+                    if ([t[@"videoId"] isEqualToString:videoId]) {
+                        exists = YES;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    [container addObject:@{
+                        @"videoId": videoId,
+                        @"title": title,
+                        @"artist": artist ?: @"YouTube Track"
+                    }];
+                }
+            }
+        }
+        
+        for (id key in dict) {
+            [self extractTracksFromDictionary:dict[key] resultsContainer:container];
+        }
+    } else if ([node isKindOfClass:[NSArray class]]) {
+        for (id child in (NSArray *)node) {
+            [self extractTracksFromDictionary:child resultsContainer:container];
+        }
+    }
 }
 
 #pragma mark - Table View Data & Delegate
@@ -198,52 +246,57 @@
     [self fetchAndStreamVideoId:selectedTrack[@"videoId"] title:selectedTrack[@"title"] artist:selectedTrack[@"artist"]];
 }
 
-#pragma mark - Player Engine (Piped Audio Extraction)
+#pragma mark - Player Engine & Remote Controls
 
 - (void)fetchAndStreamVideoId:(NSString *)videoId title:(NSString *)title artist:(NSString *)artist {
-    NSString *urlString = [NSString stringWithFormat:@"https://pipedapi.kavin.rocks/streams/%@", videoId];
+    NSString *urlString = @"https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlvU8O4R_4W16Y_019YpX4O_v9w";
     NSURL *url = [NSURL URLWithString:urlString];
     
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url 
-                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
-                                                       timeoutInterval:15.0];
-    [request setHTTPMethod:@"GET"];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setHTTPMethod:@"POST"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" forHTTPHeaderField:@"User-Agent"];
+    
+    // Uses TVHTML5 client to get direct, unencrypted audio stream URLs
+    NSDictionary *payload = @{
+        @"context": @{
+            @"client": @{
+                @"clientName": @"TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                @"clientVersion": @"2.0"
+            }
+        },
+        @"videoId": videoId
+    };
+    
+    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    [request setHTTPBody:bodyData];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error || !data) return;
-        
+        if (!data) return;
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        NSArray *audioStreams = json[@"audioStreams"];
+        NSArray *formats = json[@"streamingData"][@"adaptiveFormats"];
         
-        NSString *streamUrl = nil;
+        if (!formats) {
+            formats = json[@"streamingData"][@"formats"];
+        }
         
-        // Find best m4a / mp4 direct audio stream link
-        for (NSDictionary *stream in audioStreams) {
-            NSString *mimeType = stream[@"mimeType"];
-            if ([mimeType containsString:@"audio/mp4"] || [mimeType containsString:@"audio/m4a"]) {
-                streamUrl = stream[@"url"];
+        for (NSDictionary *format in formats) {
+            NSString *streamUrl = format[@"url"];
+            if (streamUrl && streamUrl.length > 0) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.audioPlayer = [AVPlayer playerWithURL:[NSURL URLWithString:streamUrl]];
+                    [self.audioPlayer play];
+                    self.isPlaying = YES;
+                    [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
+                    
+                    [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
+                        MPMediaItemPropertyTitle: title,
+                        MPMediaItemPropertyArtist: artist,
+                        MPNowPlayingInfoPropertyPlaybackRate: @(1.0)
+                    };
+                });
                 break;
             }
-        }
-        
-        // Fallback to first available stream if mp4 not explicitly matched
-        if (!streamUrl && audioStreams.count > 0) {
-            streamUrl = audioStreams[0][@"url"];
-        }
-        
-        if (streamUrl) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.audioPlayer = [AVPlayer playerWithURL:[NSURL URLWithString:streamUrl]];
-                [self.audioPlayer play];
-                self.isPlaying = YES;
-                [self.playPauseButton setTitle:@"⏸" forState:UIControlStateNormal];
-                
-                [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
-                    MPMediaItemPropertyTitle: title,
-                    MPMediaItemPropertyArtist: artist,
-                    MPNowPlayingInfoPropertyPlaybackRate: @(1.0)
-                };
-            });
         }
     }];
     [task resume];
