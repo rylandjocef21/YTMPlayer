@@ -113,7 +113,7 @@
     }];
 }
 
-- (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
+- - (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
     NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/search"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"POST"];
@@ -123,42 +123,84 @@
         @"context": @{
             @"client": @{
                 @"clientName": @"WEB_REMIX",
-                @"clientVersion": @"1.20231214.00.00"
+                @"clientVersion": @"1.20231214.00.00",
+                @"hl": @"en",
+                @"gl": @"US"
             }
         },
-        @"query": query
+        @"query": query,
+        @"params": @"egWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D" // Forces song-only results
     };
     
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
     [request setHTTPBody:bodyData];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error || !data) { completion(@[]); return; }
+        if (error || !data) { 
+            completion(@[]); 
+            return; 
+        }
         
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
         
-        NSArray *sections = json[@"contents"][@"tabbedSearchResultsRenderer"][@"tabs"][0][@"tabRenderer"][@"content"][@"sectionListRenderer"][@"contents"];
-        for (NSDictionary *section in sections) {
-            NSArray *items = section[@"musicShelfRenderer"][@"contents"];
-            for (NSDictionary *item in items) {
-                NSDictionary *data = item[@"musicTwoRowItemRenderer"];
-                NSString *videoId = data[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"];
-                NSString *title = data[@"title"][@"runs"][0][@"text"];
-                NSString *artist = data[@"subtitle"][@"runs"][0][@"text"];
-                
-                if (videoId && title) {
-                    [parsedTracks addObject:@{
+        // Deep scan JSON tree for tracks regardless of structure
+        [self extractTracksFromDictionary:json resultsContainer:parsedTracks];
+        
+        completion(parsedTracks);
+    }];
+    [task resume];
+}
+
+// Add this NEW helper method right below searchYouTubeMusic:completion:
+- (void)extractTracksFromDictionary:(id)node resultsContainer:(NSMutableArray *)container {
+    if ([node isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)node;
+        
+        // Match music responsive or two-row renderers
+        if (dict[@"videoId"] || dict[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"]) {
+            NSString *videoId = dict[@"videoId"] ?: dict[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"];
+            
+            NSString *title = nil;
+            if (dict[@"title"][@"runs"][0][@"text"]) {
+                title = dict[@"title"][@"runs"][0][@"text"];
+            } else if (dict[@"flexColumns"][0][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"]) {
+                title = dict[@"flexColumns"][0][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"];
+            }
+            
+            NSString *artist = nil;
+            if (dict[@"subtitle"][@"runs"][0][@"text"]) {
+                artist = dict[@"subtitle"][@"runs"][0][@"text"];
+            } else if ([dict[@"flexColumns"] count] > 1) {
+                artist = dict[@"flexColumns"][1][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"];
+            }
+            
+            if (videoId && title) {
+                BOOL exists = NO;
+                for (NSDictionary *t in container) {
+                    if ([t[@"videoId"] isEqualToString:videoId]) {
+                        exists = YES;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    [container addObject:@{
                         @"videoId": videoId,
                         @"title": title,
-                        @"artist": artist ?: @"Unknown Artist"
+                        @"artist": artist ?: @"YouTube Music"
                     }];
                 }
             }
         }
-        completion(parsedTracks);
-    }];
-    [task resume];
+        
+        for (id key in dict) {
+            [self extractTracksFromDictionary:dict[key] resultsContainer:container];
+        }
+    } else if ([node isKindOfClass:[NSArray class]]) {
+        for (id child in (NSArray *)node) {
+            [self extractTracksFromDictionary:child resultsContainer:container];
+        }
+    }
 }
 
 #pragma mark - Table View Data & Delegate
