@@ -10,9 +10,12 @@ jobs:
       - name: Install Dependencies
         run: brew install make
 
-      - name: Install Theos
+      - name: Install Theos & SDKs
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
+          curl -LO https://github.com/theos/sdks/archive/master.zip
+          unzip master.zip
+          mv sdks-master/* ~/theos/sdks/
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
       - name: Build Package
