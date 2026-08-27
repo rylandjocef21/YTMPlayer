@@ -1,11 +1,14 @@
-TARGET := iphone:clang:latest:15.0
-INSTALL_TARGET_PROCESSES = YTMPlayer
+TARGET = iphone:clang:latest:9.0
+ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME = YTMPlayer
-
 YTMPlayer_FILES = main.m YTMAppDelegate.m YTMViewController.m
-YTMPlayer_FRAMEWORKS = UIKit CoreGraphics AVAudioFoundation MediaPlayer
+YTMPlayer_FRAMEWORKS = UIKit AVFoundation CoreGraphics MediaPlayer
+YTMPlayer_CODESIGN_FLAGS = -S
 
-include $(THEOS)/makefiles/application.mk
+include $(THEOS_MAKE_PATH)/application.mk
+
+after-install::
+	install.exec "chmod 755 /Applications/YTMPlayer.app/YTMPlayer && su mobile -c uicache"
