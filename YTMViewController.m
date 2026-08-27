@@ -114,16 +114,23 @@
 }
 
 - (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
-    NSURL *url = [NSURL URLWithString:@"https://music.youtube.com/youtubei/v1/search"];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    // Append YouTube's public web client key to pass request validation
+    NSString *urlString = @"https://music.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlvU8O4R_4W16Y_019YpX4O_v9w";
+    NSURL *url = [NSURL URLWithString:urlString];
+    
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url 
+                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
+                                                       timeoutInterval:15.0];
     [request setHTTPMethod:@"POST"];
     
-    // Headers required to prevent YouTube blocking / bad requests
+    // Headers required for legacy iOS TLS compatibility & InnerTube bypass
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [request setValue:@"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"Mozilla/5.0 (iPad; CPU OS 10_3_3 like Mac OS X) AppleWebKit/603.3.8 (KHTML, like Gecko) Version/10.0 Mobile/14G60 Safari/602.1" forHTTPHeaderField:@"User-Agent"];
     [request setValue:@"67" forHTTPHeaderField:@"X-YouTube-Client-Name"];
     [request setValue:@"1.20240101.01.00" forHTTPHeaderField:@"X-YouTube-Client-Version"];
-    
+    [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
+    [request setValue:@"https://music.youtube.com/" forHTTPHeaderField:@"Referer"];
+
     NSDictionary *payload = @{
         @"context": @{
             @"client": @{
@@ -139,11 +146,21 @@
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
     [request setHTTPBody:bodyData];
     
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error || !data) { 
-            completion(@[]); 
-            return; 
+    // Create custom session configuration to force ATS compliance
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    config.HTTPAdditionalHeaders = @{@"Accept": @"*/*"};
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
+    
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error || !data) {
+            NSLog(@"[YTM Error]: %@", error.localizedDescription);
+            completion(@[]);
+            return;
         }
+        
+        // Print raw server response for debugging in Xcode console
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+        NSLog(@"[YTM Status Code]: %NSInteger", (long)httpResponse.statusCode);
         
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
