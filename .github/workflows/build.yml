@@ -7,6 +7,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install ldid & Dependencies
+        run: |
+          brew install ldid
+
       - name: Install Theos & SDKs
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
