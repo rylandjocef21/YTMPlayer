@@ -17,6 +17,11 @@ jobs:
           git clone --depth 1 https://github.com/theos/sdks.git ~/theos/sdks
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
+      - name: Patch missing armv7 liblaunch stub
+        run: |
+          mkdir -p ~/theos/sdks/iPhoneOS9.3.sdk/usr/lib/system
+          echo '---\narchs: [armv7, armv7s, arm64]\nplatform: ios\ninstall-name: /usr/lib/system/liblaunch.dylib\n...' > ~/theos/sdks/iPhoneOS9.3.sdk/usr/lib/system/liblaunch.tbd
+
       - name: Build Package
         run: |
           make package FINALPACKAGE=1 SYSROOT=$THEOS/sdks/iPhoneOS9.3.sdk
