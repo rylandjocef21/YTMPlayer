@@ -10,11 +10,13 @@ jobs:
       - name: Install ldid
         run: brew install ldid
 
-      - name: Install Theos & SDKs
+      - name: Install Theos & Legacy SDKs
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
-          git clone https://github.com/hex-edit/sdks.git ~/theos/sdks-patched
-          cp -r ~/theos/sdks-patched/* ~/theos/sdks/ || true
+          curl -LO https://github.com/theos/sdks/archive/master.zip
+          unzip -q master.zip
+          mkdir -p ~/theos/sdks
+          mv sdks-master/* ~/theos/sdks/
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
       - name: Build Package
