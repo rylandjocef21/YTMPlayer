@@ -20,7 +20,7 @@ jobs:
 
       - name: Build Package
         run: |
-          make package FINALPACKAGE=1 SYSROOT=$THEOS/sdks/iPhoneOS11.2.sdk
+          make package FINALPACKAGE=1 SYSROOT=$THEOS/sdks/iPhoneOS9.3.sdk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
