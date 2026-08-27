@@ -13,6 +13,7 @@ jobs:
       - name: Install Theos & SDKs
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
+          rm -rf ~/theos/sdks
           git clone --depth 1 https://github.com/theos/sdks.git ~/theos/sdks
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
