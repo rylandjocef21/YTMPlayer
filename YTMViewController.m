@@ -113,7 +113,7 @@
     }];
 }
 
-- - (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
+- (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
     NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/search"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"POST"];
@@ -129,7 +129,7 @@
             }
         },
         @"query": query,
-        @"params": @"egWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D" // Forces song-only results
+        @"params": @"egWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D" // Filter to only song tracks
     };
     
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
@@ -144,7 +144,7 @@
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
         
-        // Deep scan JSON tree for tracks regardless of structure
+        // Deep scan JSON response tree for all valid tracks
         [self extractTracksFromDictionary:json resultsContainer:parsedTracks];
         
         completion(parsedTracks);
@@ -152,7 +152,6 @@
     [task resume];
 }
 
-// Add this NEW helper method right below searchYouTubeMusic:completion:
 - (void)extractTracksFromDictionary:(id)node resultsContainer:(NSMutableArray *)container {
     if ([node isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = (NSDictionary *)node;
