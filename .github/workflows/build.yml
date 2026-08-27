@@ -17,7 +17,10 @@ jobs:
 
       - name: Build Package
         run: |
-          $THEOS/bin/make package FINALPACKAGE=1
+          export THEOS=$HOME/theos
+          make package FINALPACKAGE=1
+        env:
+          THEOS: ${{ github.workspace }}/../theos
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
