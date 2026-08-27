@@ -3,15 +3,14 @@ on: [push]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-12
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ldid & Dependencies
-        run: |
-          brew install ldid
+      - name: Install ldid
+        run: brew install ldid
 
-      - name: Install Theos & SDKs
+      - name: Install Theos & Legacy SDK
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
           curl -LO https://github.com/theos/sdks/archive/master.zip
