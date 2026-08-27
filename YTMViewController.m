@@ -114,22 +114,26 @@
 }
 
 - (void)searchYouTubeMusic:(NSString *)query completion:(void(^)(NSArray *results))completion {
-    NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/search"];
+    NSURL *url = [NSURL URLWithString:@"https://music.youtube.com/youtubei/v1/search"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"POST"];
+    
+    // Headers required to prevent YouTube blocking / bad requests
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"67" forHTTPHeaderField:@"X-YouTube-Client-Name"];
+    [request setValue:@"1.20240101.01.00" forHTTPHeaderField:@"X-YouTube-Client-Version"];
     
     NSDictionary *payload = @{
         @"context": @{
             @"client": @{
                 @"clientName": @"WEB_REMIX",
-                @"clientVersion": @"1.20231214.00.00",
+                @"clientVersion": @"1.20240101.01.00",
                 @"hl": @"en",
                 @"gl": @"US"
             }
         },
-        @"query": query,
-        @"params": @"egWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D" // Filter to only song tracks
+        @"query": query
     };
     
     NSData *bodyData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
@@ -144,7 +148,6 @@
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSMutableArray *parsedTracks = [NSMutableArray array];
         
-        // Deep scan JSON response tree for all valid tracks
         [self extractTracksFromDictionary:json resultsContainer:parsedTracks];
         
         completion(parsedTracks);
@@ -156,22 +159,43 @@
     if ([node isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = (NSDictionary *)node;
         
-        // Match music responsive or two-row renderers
-        if (dict[@"videoId"] || dict[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"]) {
-            NSString *videoId = dict[@"videoId"] ?: dict[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"];
-            
+        // Extract Video ID across all renderer styles
+        NSString *videoId = dict[@"videoId"];
+        if (!videoId) {
+            videoId = dict[@"navigationEndpoint"][@"watchEndpoint"][@"videoId"];
+        }
+        if (!videoId) {
+            videoId = dict[@"onTap"][@"watchEndpoint"][@"videoId"];
+        }
+        
+        if (videoId && [videoId isKindOfClass:[NSString class]] && videoId.length > 0) {
             NSString *title = nil;
+            NSString *artist = nil;
+            
+            // 1. Title Extraction
             if (dict[@"title"][@"runs"][0][@"text"]) {
                 title = dict[@"title"][@"runs"][0][@"text"];
             } else if (dict[@"flexColumns"][0][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"]) {
                 title = dict[@"flexColumns"][0][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"];
+            } else if (dict[@"header"][@"musicCardShelfHeaderBasicRenderer"][@"title"][@"runs"][0][@"text"]) {
+                title = dict[@"header"][@"musicCardShelfHeaderBasicRenderer"][@"title"][@"runs"][0][@"text"];
             }
             
-            NSString *artist = nil;
-            if (dict[@"subtitle"][@"runs"][0][@"text"]) {
-                artist = dict[@"subtitle"][@"runs"][0][@"text"];
+            // 2. Artist Extraction
+            if (dict[@"subtitle"][@"runs"]) {
+                NSArray *runs = dict[@"subtitle"][@"runs"];
+                for (NSDictionary *run in runs) {
+                    NSString *txt = run[@"text"];
+                    if (txt && ![txt isEqualToString:@" • "] && ![txt isEqualToString:@"Song"]) {
+                        artist = txt;
+                        break;
+                    }
+                }
             } else if ([dict[@"flexColumns"] count] > 1) {
-                artist = dict[@"flexColumns"][1][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"][0][@"text"];
+                NSArray *runs = dict[@"flexColumns"][1][@"musicResponsiveListItemFlexColumnRenderer"][@"text"][@"runs"];
+                if (runs.count > 0) {
+                    artist = runs[0][@"text"];
+                }
             }
             
             if (videoId && title) {
@@ -237,13 +261,22 @@
 #pragma mark - Player Engine & Remote Controls
 
 - (void)fetchAndStreamVideoId:(NSString *)videoId title:(NSString *)title artist:(NSString *)artist {
-    NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/player"];
+    NSURL *url = [NSURL URLWithString:@"https://music.youtube.com/youtubei/v1/player"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"POST"];
+    
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"67" forHTTPHeaderField:@"X-YouTube-Client-Name"];
+    [request setValue:@"1.20240101.01.00" forHTTPHeaderField:@"X-YouTube-Client-Version"];
     
     NSDictionary *payload = @{
-        @"context": @{@"client": @{@"clientName": @"WEB_REMIX", @"clientVersion": @"1.20231214.00.00"}},
+        @"context": @{
+            @"client": @{
+                @"clientName": @"WEB_REMIX",
+                @"clientVersion": @"1.20240101.01.00"
+            }
+        },
         @"videoId": videoId
     };
     
@@ -317,7 +350,6 @@
 }
 
 - (void)addToHistory:(NSDictionary *)track {
-    // Remove duplicate entry if it exists to push it to the top
     for (NSInteger i = 0; i < self.historyResults.count; i++) {
         if ([self.historyResults[i][@"videoId"] isEqualToString:track[@"videoId"]]) {
             [self.historyResults removeObjectAtIndex:i];
@@ -326,7 +358,6 @@
     }
     [self.historyResults insertObject:track atIndex:0];
     
-    // Save to NSUserDefaults
     [[NSUserDefaults standardUserDefaults] setObject:self.historyResults forKey:@"YTMPlayerHistory"];
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
