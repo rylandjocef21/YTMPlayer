@@ -91,7 +91,7 @@
     [searchBar resignFirstResponder];
     NSString *query = searchBar.text;
     if (query.length == 0) return;
-    __weak typeof(self) wself = self;
+    __unsafe_unretained typeof(self) wself = self;
     [[YTMNetworkClient sharedClient] searchYouTubeMusic:query completion:^(NSDictionary * _Nullable json, NSError * _Nullable error) {
         if (error || !json) {
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -134,7 +134,7 @@
     [self addToHistory:selectedTrack];
     self.nowPlayingLabel.text = [NSString stringWithFormat:@"%@ - %@", selectedTrack[@"title"], selectedTrack[@"artist"]];
 
-    __weak typeof(self) wself = self;
+    __unsafe_unretained typeof(self) wself = self;
     [[YTMNetworkClient sharedClient] playerForVideoId:selectedTrack[@"videoId"] completion:^(NSDictionary * _Nullable json, NSError * _Nullable error) {
         if (error || !json) {
             // TODO: better UI feedback
