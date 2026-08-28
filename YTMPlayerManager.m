@@ -23,7 +23,7 @@
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&err];
     [[AVAudioSession sharedInstance] setActive:YES error:&err];
     MPRemoteCommandCenter *cc = [MPRemoteCommandCenter sharedCommandCenter];
-    __weak typeof(self) wself = self;
+    __unsafe_unretained typeof(self) wself = self;
     [cc.playCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
         [wself.player play];
         wself.isPlaying = YES;
