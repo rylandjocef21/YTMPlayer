@@ -4,7 +4,8 @@ ARCHS = arm64
 include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME = YTMPlayer
-YTMPlayer_FILES = main.m YTMAppDelegate.m YTMViewController.m
+YTMPlayer_FILES = main.m YTMAppDelegate.m YTMViewController.m \
+                  YTMNetworkClient.m YTMTrackParser.m YTMPlayerManager.m
 YTMPlayer_FRAMEWORKS = UIKit AVFoundation CoreGraphics MediaPlayer
 YTMPlayer_CODESIGN_FLAGS = -S
 
