@@ -38,9 +38,9 @@
                     if ([t[@"videoId"] isEqualToString:videoId]) { exists = YES; break; }
                 }
                 if (!exists) {
-                    [container addObject:@{"videoId": videoId,
-                                           @"title": title,
-                                           @"artist": artist ?: @"YouTube Track"}];
+                    [container addObject:@{ @"videoId": videoId,
+                                            @"title": title,
+                                            @"artist": artist ?: @"YouTube Track" }];
                 }
             }
         }
