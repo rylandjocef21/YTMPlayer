@@ -18,8 +18,9 @@
     self.art.clipsToBounds = YES;
     [self.contentView addSubview:self.art];
 
+    // Use boldSystemFont for compatibility with older iOS versions (iOS 9 target)
     self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(80,10, self.contentView.bounds.size.width - 100, 22)];
-    self.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    self.titleLabel.font = [UIFont boldSystemFontOfSize:16];
     self.titleLabel.textColor = [UIColor whiteColor];
     [self.contentView addSubview:self.titleLabel];
 
@@ -69,6 +70,7 @@
     self.searchBar.delegate = self;
     self.searchBar.placeholder = @"Search songs or artists";
     self.searchBar.barStyle = UIBarStyleBlack;
+    // UISearchBarStyleMinimal is available on iOS 7+, keep it but avoid newer styles
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
     [self.view addSubview:self.searchBar];
 
@@ -98,8 +100,9 @@
     self.playerArt.clipsToBounds = YES;
     [self.playerBar addSubview:self.playerArt];
 
+    // Use boldSystemFont for compatibility
     self.playerTitle = [[UILabel alloc] initWithFrame:CGRectMake(80, 10, self.view.bounds.size.width - 170, 22)];
-    self.playerTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    self.playerTitle.font = [UIFont boldSystemFontOfSize:14];
     self.playerTitle.textColor = [UIColor whiteColor];
     [self.playerBar addSubview:self.playerTitle];
 
@@ -110,6 +113,7 @@
 
     self.playPauseButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.playPauseButton.frame = CGRectMake(self.view.bounds.size.width - 56, 18, 44, 36);
+    // Use simple glyphs which are supported on iOS 9; fallback to text if needed
     [self.playPauseButton setTitle:@"▶︎" forState:UIControlStateNormal];
     self.playPauseButton.titleLabel.font = [UIFont systemFontOfSize:28];
     [self.playPauseButton addTarget:self action:@selector(togglePlay) forControlEvents:UIControlEventTouchUpInside];
@@ -132,7 +136,7 @@
     [[YTMNetworkClient sharedClient] searchYouTubeMusic:q completion:^(NSDictionary * _Nullable json, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || !json) {
-                // show a tiny alert
+                // show a tiny alert (UIAlertController is iOS 8+ — our target is iOS 9 so it's fine)
                 UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Search failed" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
                 [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
                 [weak presentViewController:a animated:YES completion:nil];
