@@ -9,6 +9,9 @@ YTMPlayer_FILES = main.m YTMAppDelegate.m YTMViewController.m \
 YTMPlayer_FRAMEWORKS = UIKit AVFoundation CoreGraphics MediaPlayer
 YTMPlayer_CODESIGN_FLAGS = -S
 
+# Enable ARC for Objective-C files to use __weak safely and avoid MRC crashes
+ADDITIONAL_OBJCFLAGS += -fobjc-arc
+
 include $(THEOS_MAKE_PATH)/application.mk
 
 after-install::
